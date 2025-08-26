@@ -58,24 +58,26 @@
         }
         .wheel-number {
             position: absolute;
-            width: 30px;
-            height: 180px; /* Extends towards center */
+            width: 40px;
+            height: 40px;
             top: 50%;
             left: 50%;
-            transform-origin: center center;
+            margin-left: -20px; /* Half of element width */
+            margin-top: -20px; /* Half of element height */
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: center;
-            padding-top: 10px;
             font-weight: bold;
             color: white;
+            border-radius: 50%;
             font-size: 1.1rem;
-            transition: transform 0.3s ease, color 0.3s ease;
+            transition: transform 0.3s ease, background-color 0.3s ease;
         }
         .wheel-number.winner {
-            color: #f59e0b; /* amber-500 */
-            transform: scale(1.2) !important;
-            text-shadow: 0 0 10px #f59e0b;
+            background-color: #f59e0b !important; /* amber-500 */
+            transform: translate(var(--tx), var(--ty)) scale(1.2) !important;
+            box-shadow: 0 0 15px #f59e0b;
+            color: #1a202c;
         }
         .pointer {
             position: absolute;
@@ -356,7 +358,7 @@
 
         // --- GAME LOGIC ---
         function generateWheel() {
-            const radius = 200;
+            const radius = 170; // radius of the wheel
             const angleStep = 360 / 50;
             for (let i = 1; i <= 50; i++) {
                 const angle = (i - 1) * angleStep;
@@ -364,7 +366,23 @@
                 numberEl.className = 'wheel-number';
                 numberEl.textContent = i;
                 numberEl.dataset.number = i;
-                numberEl.style.transform = `rotate(${angle}deg) translateY(-${radius/2}px)`;
+                
+                // Position numbers around the circle using trigonometry
+                const x = radius * Math.cos((angle - 90) * (Math.PI / 180));
+                const y = radius * Math.sin((angle - 90) * (Math.PI / 180));
+                
+                // Use CSS variables for transform to make winner animation easier
+                numberEl.style.setProperty('--tx', `${x}px`);
+                numberEl.style.setProperty('--ty', `${y}px`);
+                numberEl.style.transform = `translate(${x}px, ${y}px)`;
+                
+                // Color alternating numbers for visual appeal
+                if(i % 2 === 0) {
+                    numberEl.style.backgroundColor = '#4b5563'; // gray-600
+                } else {
+                    numberEl.style.backgroundColor = '#1a202c'; // gray-900
+                }
+                
                 wheel.appendChild(numberEl);
             }
         }
