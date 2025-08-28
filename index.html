@@ -134,6 +134,10 @@
         const gameContainer = document.getElementById('game-container');
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
+        const loginEmailInput = document.getElementById('login-email');
+        const loginPasswordInput = document.getElementById('login-password');
+        const registerEmailInput = document.getElementById('register-email');
+        const registerPasswordInput = document.getElementById('register-password');
         const toggleAuth = document.getElementById('toggle-auth');
         const authTitle = document.getElementById('auth-title');
         const playerListEl = document.getElementById('player-list');
@@ -185,7 +189,7 @@
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             try {
-                await signInWithEmailAndPassword(auth, loginForm.querySelector('#login-email').value, loginForm.querySelector('#login-password').value);
+                await signInWithEmailAndPassword(auth, loginEmailInput.value, loginPasswordInput.value);
             } catch (error) {
                 showMessage('Failed to sign in. Check credentials.', 'error');
             }
@@ -194,7 +198,7 @@
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             try {
-                await createUserWithEmailAndPassword(auth, registerForm.querySelector('#register-email').value, registerForm.querySelector('#register-password').value);
+                await createUserWithEmailAndPassword(auth, registerEmailInput.value, registerPasswordInput.value);
             } catch (error) {
                 showMessage(error.code === 'auth/email-already-in-use' ? 'Email already in use.' : 'Registration failed.', 'error');
             }
@@ -237,9 +241,14 @@
             const gameSnap = await getDoc(gameRef);
 
             if (gameSnap.exists()) {
-                 await updateDoc(gameRef, {
-                    [`players.${currentUser.uid}`]: { email: currentUser.email, balance: 1000, bets: [], ready: false }
-                });
+                 const gameData = gameSnap.data();
+                 if(gameData.players[currentUser.uid]){
+                     console.log("Player already in game. Rejoining.");
+                 } else {
+                    await updateDoc(gameRef, {
+                        [`players.${currentUser.uid}`]: { email: currentUser.email, balance: 1000, bets: [], ready: false }
+                    });
+                 }
                 joinGame(gameId);
             } else {
                 showMessage('Game not found.', 'error');
@@ -261,20 +270,28 @@
              if (unsubscribeGame) unsubscribeGame();
              if (unsubscribeChat) unsubscribeChat();
              
-             // Logic to remove player from game doc
-             const gameRef = doc(db, 'games', currentGameId);
-             const gameSnap = await getDoc(gameRef);
-             if(gameSnap.exists()){
-                 const gameData = gameSnap.data();
-                 delete gameData.players[currentUser.uid];
-                 if(Object.keys(gameData.players).length === 0){
-                     await deleteDoc(gameRef); // Delete game if empty
-                 } else {
-                     if(gameData.host === currentUser.uid){
-                         gameData.host = Object.keys(gameData.players)[0]; // Assign new host
-                     }
-                     await setDoc(gameRef, gameData);
-                 }
+             if(currentGameId) {
+                const gameRef = doc(db, 'games', currentGameId);
+                try {
+                    await runTransaction(db, async (transaction) => {
+                        const gameDoc = await transaction.get(gameRef);
+                        if (!gameDoc.exists()) return;
+
+                        const gameData = gameDoc.data();
+                        delete gameData.players[currentUser.uid];
+
+                        if (Object.keys(gameData.players).length === 0) {
+                            transaction.delete(gameRef);
+                        } else {
+                            if (gameData.host === currentUser.uid) {
+                                gameData.host = Object.keys(gameData.players)[0];
+                            }
+                            transaction.set(gameRef, gameData);
+                        }
+                    });
+                } catch (e) {
+                    console.error("Failed to leave game:", e);
+                }
              }
 
              currentGameId = null;
@@ -297,7 +314,12 @@
             startGameBtn.style.display = (gameData.host === currentUser.uid && gameData.status === 'waiting' && Object.keys(gameData.players).length > 1) ? 'block' : 'none';
 
             const myPlayerData = gameData.players[currentUser.uid];
-            if (!myPlayerData) return; // Player was removed
+            if (!myPlayerData) {
+                // This can happen if the host kicks a player, for example.
+                showMessage("You have been removed from the game.", "info");
+                leaveGame();
+                return;
+            }
 
             switch(gameData.status) {
                 case 'betting':
@@ -395,7 +417,7 @@
                     for (const uid in players) {
                         const p = players[uid];
                         if (p.balance <= 0) continue;
-                        const totalBet = (p.bets.length || 1) * betAmount; // Bet at least 1x amount even if no numbers selected
+                        const totalBet = p.bets.length * betAmount;
                         let newBalance = p.balance - totalBet;
                         if (p.bets.includes(winningNumber)) newBalance += betAmount * 10;
                         players[uid].balance = newBalance < 0 ? 0 : newBalance;
@@ -440,7 +462,7 @@
         }
 
         async function sendChatMessage(message) {
-            if (!message.trim()) return;
+            if (!message.trim() || !currentGameId) return;
             await addDoc(collection(db, 'games', currentGameId, 'chat'), {
                 senderId: currentUser.uid, senderEmail: currentUser.email, message, timestamp: serverTimestamp()
             });
